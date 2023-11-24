@@ -1,0 +1,113 @@
+---
+version: '3.8'
+services:
+  mongopatient:
+    container_name: mongopatient
+    hostname: mongopatient
+    image: mongo:jammy
+    restart: unless-stopped
+    ports:
+      - "27015:27015"
+    expose:
+      - 27015
+    volumes:
+      - ./mongo-data/mongopatient:/data/db
+
+  mongoradtech:
+    container_name: mongoradtech
+    image: mongo:jammy
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./mongo-data/mongoradtech:/data/db
+
+  mongoreport:
+    container_name: mongoreport
+    image: mongo:jammy
+    restart: unless-stopped
+    ports:
+      - "27019:27017"
+    expose:
+      - 27019
+    volumes:
+      - ./mongo-data/mongoreport:/data/db
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.4
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  broker:
+    image: confluentinc/cp-kafka:7.3.4
+    container_name: broker
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT : zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:9092,PLAINTEXT_INTERNAL://broker:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+
+  discoveryserver:
+    image: moalghwell/discoveryserver:1.5.0
+    container_name: discoveryserver
+    ports:
+      - "8761:8761"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+  
+  apigateway:
+    image: moalghwell/apigateway:1.5.0
+    container_name: apigateway
+    ports:
+      - "8185:8080"
+    expose:
+      - 8185
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      LOGGING_LEVEL_ORG_SPRINGFRAMEWORK_SECURITY: TRACE
+    depends_on: 
+      - discoveryserver
+
+  patientinfo:
+    container_name: patientinfo
+    image: moalghwell/patientinfo:1.5.0
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      MONGODB_URL: mongodb://mongopatient:27017/radPatientInfo
+    depends_on:
+      - mongopatient
+      - broker
+      - discoveryserver
+      - apigateway
+
+  radtechnologist:
+    container_name: radtechnologist
+    image: moalghwell/radtechnologist:1.5.0
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      MONGODB_URL: mongodb://mongoradtech:27017/radTech
+    depends_on:
+      - mongoradtech
+      - broker
+      - discoveryserver
+      - apigateway
+
+  result:
+    container_name: result
+    image: moalghwell/result:1.5.0
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      MONGODB_URL: mongodb://mongoreport:27017/radResult
+    depends_on:
+      - mongoreport
+      - discoveryserver
+      - apigateway
